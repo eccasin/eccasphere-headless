@@ -1,1 +1,68 @@
 
+// --- CONFIGURATION ---
+// This Vercel Serverless Function fetches data from Contentful and generates an RSS feed.
+// It will be accessible at YOUR_VERCEL_DOMAIN/api/rss
+// IMPORTANT: You must set these as Environment Variables in your Vercel project settings.
+const SPACE_ID = process.env.CONTENTFUL_SPACE_ID;
+const ACCESS_TOKEN = process.env.CONTENTFUL_ACCESS_TOKEN;
+const CONTENT_TYPE_ID = 'article'; 
+const SITE_URL = 'https://www.eccasin.com/eccasphere'; // The base URL for your articles
+
+// --- Vercel Serverless Function Handler ---
+export default async function handler(request, response) {
+    // Construct the Contentful Delivery API URL
+    const apiUrl = `https://cdn.contentful.com/spaces/${SPACE_ID}/environments/master/entries?access_token=${ACCESS_TOKEN}&content_type=${CONTENT_TYPE_ID}&order=-fields.publicationDate&limit=20`;
+
+    try {
+        const apiResponse = await fetch(apiUrl);
+        if (!apiResponse.ok) {
+            throw new Error(`Contentful API error! status: ${apiResponse.status}`);
+        }
+        const data = await apiResponse.json();
+
+        // Generate the RSS feed XML
+        const rssFeed = generateRss(data.items);
+        
+        // Send the response
+        response.status(200)
+            .setHeader('Content-Type', 'application/rss+xml; charset=utf-8')
+            .send(rssFeed);
+
+    } catch (error) {
+        console.error('Error generating RSS feed:', error);
+        response.status(500).send('Error generating RSS feed.');
+    }
+}
+
+// --- RSS Generation Logic ---
+function generateRss(items) {
+    let rssItems = '';
+    items.forEach(item => {
+        const fields = item.fields;
+        const articleUrl = `${SITE_URL}/${fields.slug}`;
+        const pubDate = new Date(fields.publicationDate).toUTCString();
+
+        rssItems += `
+            <item>
+                <title><![CDATA[${fields.title || ''}]]></title>
+                <link>${articleUrl}</link>
+                <guid isPermaLink="true">${articleUrl}</guid>
+                <pubDate>${pubDate}</pubDate>
+                <description><![CDATA[${fields.title || 'Read more at Eccasphere.'}]]></description>
+            </item>
+        `;
+    });
+
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+    <channel>
+        <title>Eccasphere</title>
+        <link>${SITE_URL}</link>
+        <description>The world of ECCASIN.</description>
+        <language>en-us</language>
+        <lastBuildDate>${new Date().toUTCString()}</lastBuildDate>
+        <atom:link href="${SITE_URL}/api/rss" rel="self" type="application/rss+xml" />
+        ${rssItems}
+    </channel>
+</rss>`;
+}
