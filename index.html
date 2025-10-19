@@ -1,68 +1,140 @@
-// --- CONFIGURATION ---
-// This Vercel Serverless Function fetches data from Contentful and generates an RSS feed.
-// It will be accessible at YOUR_VERCEL_DOMAIN/api/rss
-// IMPORTANT: You must set these as Environment Variables in your Vercel project settings.
-const SPACE_ID = process.env.CONTENTFUL_SPACE_ID;
-const ACCESS_TOKEN = process.env.CONTENTFUL_ACCESS_TOKEN;
-const CONTENT_TYPE_ID = 'article'; 
-const SITE_URL = 'https://www.eccasin.com/eccasphere'; // The base URL for your articles
-
-// --- Vercel Serverless Function Handler ---
-export default async function handler(request, response) {
-    // Construct the Contentful Delivery API URL
-    const apiUrl = `https://cdn.contentful.com/spaces/${SPACE_ID}/environments/master/entries?access_token=${ACCESS_TOKEN}&content_type=${CONTENT_TYPE_ID}&order=-fields.publicationDate&limit=20`;
-
-    try {
-        const apiResponse = await fetch(apiUrl);
-        if (!apiResponse.ok) {
-            throw new Error(`Contentful API error! status: ${apiResponse.status}`);
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Eccasphere</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0a0a0a;
+            color: #e5e5e5;
         }
-        const data = await apiResponse.json();
+        .grid-item {
+            position: relative;
+            overflow: hidden;
+            border-radius: 0.5rem;
+            aspect-ratio: 1 / 1;
+        }
+        .grid-item img {
+            transition: transform 0.4s ease;
+        }
+        .grid-item:hover img {
+            transform: scale(1.05);
+        }
+        .grid-item .overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(to top, rgba(0,0,0,0.8), rgba(0,0,0,0) 50%);
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 1rem;
+        }
+        .category-tag {
+            background-color: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(5px);
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            align-self: flex-start;
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+    <header class="flex justify-between items-center mb-8">
+        <h1 class="text-2xl font-bold tracking-tighter">ECCASPHERE</h1>
+        <!-- You can add navigation or filter controls here -->
+    </header>
 
-        // Generate the RSS feed XML
-        const rssFeed = generateRss(data.items);
-        
-        // Send the response
-        response.status(200)
-            .setHeader('Content-Type', 'application/rss+xml; charset=utf-8')
-            .send(rssFeed);
+    <main>
+        <div id="loading" class="text-center py-16">
+            <p>Loading articles...</p>
+        </div>
+        <div id="articles-grid" class="hidden grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+            <!-- Article cards will be injected here by JavaScript -->
+        </div>
+        <div id="error-message" class="hidden text-center py-16 bg-red-900/20 p-4 rounded-lg">
+            <p class="font-bold">Failed to load articles.</p>
+            <p class="text-sm text-neutral-400 mt-2">Please check your Contentful API keys and network connection.</p>
+        </div>
+    </main>
 
-    } catch (error) {
-        console.error('Error generating RSS feed:', error);
-        response.status(500).send('Error generating RSS feed.');
-    }
-}
+    <script>
+        // --- CONFIGURATION ---
+        // IMPORTANT: You must set these as Environment Variables in your Vercel project settings.
+        const SPACE_ID = 'YOUR_SPACE_ID';
+        const ACCESS_TOKEN = 'YOUR_CONTENT_DELIVERY_API_ACCESS_TOKEN';
+        const CONTENT_TYPE_ID = 'article'; 
 
-// --- RSS Generation Logic ---
-function generateRss(items) {
-    let rssItems = '';
-    items.forEach(item => {
-        const fields = item.fields;
-        const articleUrl = `${SITE_URL}/${fields.slug}`;
-        const pubDate = new Date(fields.publicationDate).toUTCString();
+        // --- DOM ELEMENTS ---
+        const grid = document.getElementById('articles-grid');
+        const loadingIndicator = document.getElementById('loading');
+        const errorMessage = document.getElementById('error-message');
 
-        rssItems += `
-            <item>
-                <title><![CDATA[${fields.title || ''}]]></title>
-                <link>${articleUrl}</link>
-                <guid isPermaLink="true">${articleUrl}</guid>
-                <pubDate>${pubDate}</pubDate>
-                <description><![CDATA[${fields.title || 'Read more at Eccasphere.'}]]></description>
-            </item>
-        `;
-    });
+        // --- DATE FORMATTER ---
+        function formatDate(isoString) {
+            if (!isoString) return '';
+            const date = new Date(isoString);
+            return date.toLocaleDateString('en-US', {
+                month: 'short',
+                year: 'numeric'
+            }).toUpperCase();
+        }
 
-    return `<?xml version="1.0" encoding="UTF-8"?>
-<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
-    <channel>
-        <title>Eccasphere</title>
-        <link>${SITE_URL}</link>
-        <description>The world of ECCASIN.</description>
-        <language>en-us</language>
-        <lastBuildDate>${new Date().toUTCString()}</lastBuildDate>
-        <atom:link href="${SITE_URL}/api/rss" rel="self" type="application/rss+xml" />
-        ${rssItems}
-    </channel>
-</rss>`;
-}
+        // --- FETCH & RENDER ARTICLES ---
+        async function fetchAndRenderArticles() {
+            // NOTE: For local testing, you can replace the placeholder keys above.
+            // For production, Vercel will inject the Environment Variables.
+            const apiUrl = `https://cdn.contentful.com/spaces/${SPACE_ID}/environments/master/entries?access_token=${ACCESS_TOKEN}&content_type=${CONTENT_TYPE_ID}&order=-fields.publicationDate`;
+
+            try {
+                const response = await fetch(apiUrl);
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                const data = await response.json();
+                
+                const assets = new Map(data.includes.Asset.map(asset => [asset.sys.id, asset]));
+
+                data.items.forEach(item => {
+                    const fields = item.fields;
+                    const imageUrl = assets.get(fields.coverVisual?.sys?.id)?.fields?.file?.url;
+
+                    const articleCard = `
+                        <a href="/eccasphere/${fields.slug}" class="grid-item group block">
+                            ${imageUrl ? `<img src="https:${imageUrl}" alt="${fields.title || ''}" class="w-full h-full object-cover">` : '<div class="w-full h-full bg-neutral-800"></div>'}
+                            <div class="overlay">
+                                <div class="category-tag">${fields.categoryTag || ''}</div>
+                                <div class="text-white">
+                                    <p class="text-xs uppercase tracking-widest">${formatDate(fields.publicationDate)}</p>
+                                    <h2 class="font-semibold mt-1">${fields.title || 'Untitled Article'}</h2>
+                                </div>
+                            </div>
+                        </a>
+                    `;
+                    grid.insertAdjacentHTML('beforeend', articleCard);
+                });
+
+                loadingIndicator.classList.add('hidden');
+                grid.classList.remove('hidden');
+
+            } catch (error) {
+                console.error('Error fetching data from Contentful:', error);
+                loadingIndicator.classList.add('hidden');
+                errorMessage.classList.remove('hidden');
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', fetchAndRenderArticles);
+    </script>
+</body>
+</html>
 
