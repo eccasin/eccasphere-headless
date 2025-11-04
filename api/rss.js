@@ -10,13 +10,29 @@ const SITE_URL = 'https://www.eccasin.com/eccasphere'; // The base URL for your 
 
 // --- Vercel Serverless Function Handler ---
 export default async function handler(request, response) {
+    // Check if environment variables are set
+    if (!SPACE_ID || !ACCESS_TOKEN) {
+        console.error('Missing environment variables:', {
+            hasSpaceId: !!SPACE_ID,
+            hasAccessToken: !!ACCESS_TOKEN
+        });
+        return response.status(500).send(`<?xml version="1.0" encoding="UTF-8"?>
+<error>Server configuration error: Missing Contentful credentials</error>`);
+    }
+
     // Construct the Contentful Delivery API URL
     const apiUrl = `https://cdn.contentful.com/spaces/${SPACE_ID}/environments/master/entries?access_token=${ACCESS_TOKEN}&content_type=${CONTENT_TYPE_ID}&order=-fields.publicationDate&limit=20`;
 
     try {
         const apiResponse = await fetch(apiUrl);
         if (!apiResponse.ok) {
-            throw new Error(`Contentful API error! status: ${apiResponse.status}`);
+            const errorText = await apiResponse.text();
+            console.error('Contentful API error:', {
+                status: apiResponse.status,
+                statusText: apiResponse.statusText,
+                body: errorText
+            });
+            throw new Error(`Contentful API error! status: ${apiResponse.status} - ${errorText}`);
         }
         const data = await apiResponse.json();
 
@@ -38,7 +54,8 @@ export default async function handler(request, response) {
 
     } catch (error) {
         console.error('Error generating RSS feed:', error);
-        response.status(500).send('Error generating RSS feed.');
+        response.status(500).send(`<?xml version="1.0" encoding="UTF-8"?>
+<error>${error.message}</error>`);
     }
 }
 
