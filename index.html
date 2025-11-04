@@ -70,12 +70,6 @@
     </main>
 
     <script>
-        // --- CONFIGURATION ---
-        // IMPORTANT: You must set these as Environment Variables in your Vercel project settings.
-        const SPACE_ID = 'YOUR_SPACE_ID';
-        const ACCESS_TOKEN = 'YOUR_CONTENT_DELIVERY_API_ACCESS_TOKEN';
-        const CONTENT_TYPE_ID = 'article'; 
-
         // --- DOM ELEMENTS ---
         const grid = document.getElementById('articles-grid');
         const loadingIndicator = document.getElementById('loading');
@@ -93,9 +87,8 @@
 
         // --- FETCH & RENDER ARTICLES ---
         async function fetchAndRenderArticles() {
-            // NOTE: For local testing, you can replace the placeholder keys above.
-            // For production, Vercel will inject the Environment Variables.
-            const apiUrl = `https://cdn.contentful.com/spaces/${SPACE_ID}/environments/master/entries?access_token=${ACCESS_TOKEN}&content_type=${CONTENT_TYPE_ID}&order=-fields.publicationDate`;
+            // Use the proxy endpoint to fetch articles (no credentials in frontend)
+            const apiUrl = '/api/articles';
 
             try {
                 const response = await fetch(apiUrl);

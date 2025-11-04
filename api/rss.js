@@ -20,9 +20,17 @@ export default async function handler(request, response) {
         }
         const data = await apiResponse.json();
 
+        // Build an asset map for easy lookup
+        const assets = new Map();
+        if (data.includes && data.includes.Asset) {
+            data.includes.Asset.forEach(asset => {
+                assets.set(asset.sys.id, asset);
+            });
+        }
+
         // Generate the RSS feed XML
-        const rssFeed = generateRss(data.items);
-        
+        const rssFeed = generateRss(data.items, assets);
+
         // Send the response
         response.status(200)
             .setHeader('Content-Type', 'application/rss+xml; charset=utf-8')
@@ -34,34 +42,77 @@ export default async function handler(request, response) {
     }
 }
 
+// --- Helper function to extract text from rich text content ---
+function extractTextFromRichText(content) {
+    if (!content || !content.content) return '';
+
+    let text = '';
+    content.content.forEach(node => {
+        if (node.nodeType === 'paragraph' && node.content) {
+            node.content.forEach(textNode => {
+                if (textNode.nodeType === 'text') {
+                    text += textNode.value + ' ';
+                }
+            });
+        }
+    });
+
+    // Return first 300 characters as excerpt
+    return text.trim().substring(0, 300) + (text.length > 300 ? '...' : '');
+}
+
 // --- RSS Generation Logic ---
-function generateRss(items) {
+function generateRss(items, assets) {
     let rssItems = '';
     items.forEach(item => {
         const fields = item.fields;
         const articleUrl = `${SITE_URL}/${fields.slug}`;
         const pubDate = new Date(fields.publicationDate).toUTCString();
 
+        // Extract description from content field
+        const description = fields.content
+            ? extractTextFromRichText(fields.content)
+            : (fields.title || 'Read more at Eccasphere.');
+
+        // Get cover image if available
+        let imageEnclosure = '';
+        if (fields.coverVisual && fields.coverVisual.sys && fields.coverVisual.sys.id) {
+            const asset = assets.get(fields.coverVisual.sys.id);
+            if (asset && asset.fields && asset.fields.file) {
+                const imageUrl = `https:${asset.fields.file.url}`;
+                const imageType = asset.fields.file.contentType || 'image/jpeg';
+                const imageSize = asset.fields.file.details?.size || 0;
+                imageEnclosure = `<enclosure url="${imageUrl}" type="${imageType}" length="${imageSize}" />`;
+            }
+        }
+
+        // Add category if available
+        const category = fields.categoryTag
+            ? `<category>${fields.categoryTag}</category>`
+            : '';
+
         rssItems += `
             <item>
-                <title><![CDATA[${fields.title || ''}]]></title>
+                <title><![CDATA[${fields.title || 'Untitled'}]]></title>
                 <link>${articleUrl}</link>
                 <guid isPermaLink="true">${articleUrl}</guid>
                 <pubDate>${pubDate}</pubDate>
-                <description><![CDATA[${fields.title || 'Read more at Eccasphere.'}]]></description>
+                <description><![CDATA[${description}]]></description>
+                ${imageEnclosure}
+                ${category}
             </item>
         `;
     });
 
     return `<?xml version="1.0" encoding="UTF-8"?>
-<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:media="http://search.yahoo.com/mrss/">
     <channel>
         <title>Eccasphere</title>
         <link>${SITE_URL}</link>
         <description>The world of ECCASIN.</description>
         <language>en-us</language>
         <lastBuildDate>${new Date().toUTCString()}</lastBuildDate>
-        <atom:link href="${SITE_URL}/api/rss" rel="self" type="application/rss+xml" />
+        <atom:link href="https://eccasin.com/rss.xml" rel="self" type="application/rss+xml" />
         ${rssItems}
     </channel>
 </rss>`;
